@@ -134,7 +134,7 @@ After running the setup script, choose one of the following methods to start Lin
 Alternatively, you can launch it manually once using:
 
 ```bash
-python3 linuxisland.py
+python3 dynamic_island.py
 ```
 
 The setup script does not configure automatic startup.
@@ -144,7 +144,7 @@ The setup script does not configure automatic startup.
 Start the main application:
 
 ```bash
-python3 linuxisland.py
+python3 dynamic_island.py
 ```
 
 Watcher scripts are located alongside the main application.
