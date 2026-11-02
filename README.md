@@ -77,6 +77,14 @@ chmod +x quicksetup.sh
 ./quicksetup.sh
 ```
 
+use the following script if you do not have figlet installed
+
+'''bash
+chmod +x quicksetup.sh
+./quicksetup.sh --bare
+'''
+
+
 The script detects supported package managers and installs the required dependencies.
 
 Currently supported package managers:
@@ -86,6 +94,23 @@ Currently supported package managers:
 - DNF
 
 The setup script installs dependencies only. It does not automatically launch LinuxIsland or its watcher processes.
+
+if you do not use these package managers, you should install the dependency list provided by the setup script manually to system python
+
+### Starting LinuxIsland
+
+After running the setup script, choose one of the following methods to start LinuxIsland:
+
+- **Hyprland:** Add an `exec-once` entry per script to your Hyprland configuration to launch LinuxIsland automatically when you log in.
+- **systemd:** Create and enable a systemd *user service* to launch LinuxIsland automatically when your user session starts.
+
+Alternatively, you can launch it manually once using:
+
+```bash
+python3 linuxisland.py
+```
+
+The setup script does not configure automatic startup.
 
 ## Running
 
