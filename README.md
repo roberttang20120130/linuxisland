@@ -79,10 +79,10 @@ chmod +x quicksetup.sh
 
 use the following script if you do not have figlet installed
 
-'''bash
+```bash
 chmod +x quicksetup.sh
 ./quicksetup.sh --bare
-'''
+```
 
 
 The script detects supported package managers and installs the required dependencies.
