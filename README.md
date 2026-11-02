@@ -4,6 +4,33 @@ A modern, animated status bar and desktop overlay for Linux.
 
 LinuxIsland provides a compact, dynamic interface for system information, notifications, and application integrations.
 
+
+## Table of Contents
+
+- [Features](#features)
+- [Philosophy](#philosophy)
+- [Requirements](#requirements)
+  - [Python Standard Library](#python-standard-library)
+  - [External Python Dependencies](#external-python-dependencies)
+  - [System Libraries](#system-libraries)
+- [Installation](#installation)
+- [Starting LinuxIsland](#starting-linuxisland)
+- [Running](#running)
+- [Architecture](#architecture)
+  - [Watchers](#watchers)
+  - [Main Application](#main-application)
+- [HTTP API](#http-api)
+  - [Event Endpoint](#event-endpoint)
+  - [Generic Event Fields](#generic-event-fields)
+  - [Example Request](#example-request)
+  - [Specialized Events](#specialized-events)
+  - [API Responses](#api-responses)
+- [Integrations](#integrations)
+- [Development](#development)
+- [Security](#security)
+- [License](#license)
+
+
 ## Features
 
 - Animated compact and expanded states.
@@ -77,7 +104,7 @@ chmod +x quicksetup.sh
 ./quicksetup.sh
 ```
 
-use the following script if you do not have figlet installed
+If you do not want to install FIGlet, or FIGlet cannot be installed in your environment, use bare mode:
 
 ```bash
 chmod +x quicksetup.sh
@@ -95,7 +122,7 @@ Currently supported package managers:
 
 The setup script installs dependencies only. It does not automatically launch LinuxIsland or its watcher processes.
 
-if you do not use these package managers, you should install the dependency list provided by the setup script manually to system python
+If your distribution does not support one of these package managers, install the listed dependencies using your distribution's native package manager. Make sure the Python packages are available to your system-managed Python installation
 
 ### Starting LinuxIsland
 
@@ -232,6 +259,13 @@ LinuxIsland is designed to be extensible.
 Applications and scripts can communicate with it through the HTTP API without needing to use Python, GTK, or Cairo themselves.
 
 This allows integrations to be written in practically any language that supports HTTP requests.
+
+## Security
+
+LinuxIsland's HTTP API listens on `127.0.0.1` and is intended
+for local integrations.
+
+It is not designed to be exposed directly to external networks.
 
 ## Development
 
