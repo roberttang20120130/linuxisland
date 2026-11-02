@@ -239,6 +239,8 @@ LinuxIsland is intended to remain open to modification and extension.
 
 Contributions, integrations, improvements, and forks are welcome.
 
+if you want to contact the developer, email me at roberttang20120130@proton.me
+
 ## License
 
 LinuxIsland is licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
