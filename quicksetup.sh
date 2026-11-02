@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -548,7 +547,7 @@ printf "  Project directory:\n"
 printf "    %s\n" "$PROJECT_DIR"
 printf "\n"
 printf "  To launch LinuxIsland:\n\n"
-printf "    ${CYAN}${BOLD}%s linuxisland.py${RESET}\n" "$PYTHON_BIN"
+printf "    ${CYAN}${BOLD}%s dynamic_island.py${RESET}\n" "$PYTHON_BIN"
 printf "\n"
 
 warning "The installer does not automatically start watcher scripts."
