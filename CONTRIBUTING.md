@@ -1,0 +1,1 @@
+welp, any bugfixes are welcome, and right now, the main thing is helping improve the API to make it more extensive, so contributions on that side is welcome, also, packaging to installable files is another step we need, currently, its just a quicksetup.sh
