@@ -66,7 +66,7 @@ LinuxIsland is designed for Wayland environments with GTK Layer Shell support.
 Clone the repository:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/roberttang20120130/linuxisland
 cd linuxisland
 ```
 
