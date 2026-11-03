@@ -39,6 +39,9 @@ NORMAL_HEIGHT = 28
 EXPANDED_WIDTH = 390
 EXPANDED_HEIGHT = 92
 
+# Shorter height for single-line events (no progress bar).
+COMPACT_EXPANDED_HEIGHT = 48
+
 # Animation only runs while expanding/collapsing.
 ANIMATION_INTERVAL = 25
 ANIMATION_SPEED = 0.24
@@ -1285,15 +1288,16 @@ class DynamicIsland(Gtk.Window):
             )
         )
 
-    def expand(self):
+    def expand(self, height=None):
 
         self.target_width = float(
             EXPANDED_WIDTH
         )
 
-        self.target_height = float(
-            EXPANDED_HEIGHT
-        )
+        if height is not None:
+            self.target_height = float(height)
+        else:
+            self.target_height = float(EXPANDED_HEIGHT)
 
         self.start_animation()
 
@@ -1513,7 +1517,11 @@ class DynamicIsland(Gtk.Window):
 
         self.generic_active = True
 
-        self.expand()
+        # Use compact height for single-line events (no progress bar).
+        if "progress" in data:
+            self.expand(EXPANDED_HEIGHT)
+        else:
+            self.expand(COMPACT_EXPANDED_HEIGHT)
 
         if self.generic_timeout_id is not None:
             try:
