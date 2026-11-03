@@ -161,6 +161,7 @@ Individual Python helper scripts monitor specific system events and send relevan
 |---|---|
 | `battery_warn.py` | Battery warnings |
 | `charging_watcher.py` | Charging status |
+| `desktop_watcher.py` | Desktop / workspace switch notifications |
 | `notification.py` | Notifications |
 | `temprature.py` | Temperature monitoring |
 | `usb_watcher.py` | USB connection events |
@@ -197,15 +198,20 @@ The API accepts JSON event data.
 
 ### Generic event fields
 
-| Field | Description |
-|---|---|
-| `type` | Event type |
-| `title` | Event title |
-| `value` | Event content |
-| `border` | Border colour |
-| `border_width` | Border width |
-| `border_radius` | Border radius |
-| `duration` | Display duration |
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Event type (any string; `volume` and `charging` get special rendering) |
+| `title` | No | Event title shown in bold. Defaults to the `type` value. |
+| `value` | No | Right-aligned text next to the title. |
+| `icon` | No | Leading symbol/emoji rendered before the title (e.g. `"🚀"`). |
+| `progress` | No | Progress bar fill, 0–1 or 0–100. Renders a horizontal bar below the title. |
+| `bar_color` | No | Hex colour for the progress bar fill (default white). E.g. `"#4FC3F7"`. |
+| `border` | No | Border colour as hex string, e.g. `"#FF9500"`. |
+| `border_width` | No | Border stroke width in pixels (default 2). |
+| `border_radius` | No | Corner radius for the border (default matches island corners). |
+| `duration` | No | Display duration in seconds (default 3). Minimum 0.1. |
+
+All fields except `type` are optional. Events without new fields render exactly as before.
 
 ### Example request
 
@@ -233,12 +239,30 @@ urllib.request.urlopen(request)
 
 Any application capable of making HTTP requests can integrate with LinuxIsland.
 
+### Example: event with icon and progress bar
+
+```python
+event = {
+    "type": "download",
+    "title": "Downloading",
+    "value": "72%",
+    "icon": "⬇️",
+    "progress": 0.72,
+    "bar_color": "#4FC3F7",
+    "border": "#4FC3F7",
+    "duration": 5
+}
+```
+
+This renders a leading download emoji, the title and percentage, plus a horizontal progress bar filled to 72% in light blue.
+
 ### Specialized events
 
 LinuxIsland also supports specialized event types, including:
 
-- `volume` — uses the `volume` field.
-- `charging` — uses the `battery` field.
+- `volume` — uses the `volume` field. Renders a volume bar with percentage.
+- `charging` — uses the `battery` field. Shows charging status with green border.
+- Any other type renders as a generic event (title + value + optional icon/progress/border).
 
 ### API responses
 

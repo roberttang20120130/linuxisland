@@ -1054,10 +1054,30 @@ class DynamicIsland(Gtk.Window):
                 "",
             )
 
+            icon = event.get(
+                "icon",
+                "",
+            )
+
+            # Optional leading symbol before the title.
+            if icon:
+                self.draw_text(
+                    cr,
+                    str(icon),
+                    x + 12,
+                    13,
+                    16,
+                    False,
+                )
+
+                title_x = x + 40
+            else:
+                title_x = x + 18
+
             self.draw_text(
                 cr,
                 title,
-                x + 18,
+                title_x,
                 13,
                 16,
                 True,
@@ -1072,6 +1092,103 @@ class DynamicIsland(Gtk.Window):
                     16,
                     True,
                 )
+
+            # Optional progress bar.
+            # Accepts "progress" as a number 0-100 or 0.0-1.0.
+            progress = event.get("progress")
+
+            if progress is not None:
+
+                try:
+                    progress_val = float(progress)
+                except (TypeError, ValueError):
+                    progress_val = None
+
+                if progress_val is not None:
+
+                    # Support both 0-1 and 0-100 ranges.
+                    if progress_val <= 1.0:
+                        progress_val *= 100.0
+
+                    progress_val = max(
+                        0.0,
+                        min(100.0, progress_val),
+                    )
+
+                    bar_x = x + 18
+                    bar_y = 50
+                    bar_width = width - 36
+                    bar_height = 10
+                    bar_radius = bar_height / 2
+
+                    # Optional custom bar colour from event.
+                    bar_color = event.get("bar_color")
+                    r, g, b = 1.0, 1.0, 1.0
+
+                    if bar_color:
+                        try:
+                            color_str = str(bar_color).lstrip("#")
+                            if len(color_str) == 3:
+                                color_str = "".join(
+                                    c + c for c in color_str
+                                )
+                            if len(color_str) == 6:
+                                r = int(color_str[0:2], 16) / 255.0
+                                g = int(color_str[2:4], 16) / 255.0
+                                b = int(color_str[4:6], 16) / 255.0
+                        except (TypeError, ValueError):
+                            pass
+
+                    # Background track.
+                    cr.set_source_rgba(
+                        0.18,
+                        0.18,
+                        0.20,
+                        1.0,
+                    )
+
+                    self.rounded_rectangle(
+                        cr,
+                        bar_x,
+                        bar_y,
+                        bar_width,
+                        bar_height,
+                        bar_radius,
+                    )
+
+                    cr.fill()
+
+                    # Filled portion.
+                    if progress_val > 0:
+
+                        fill_width = (
+                            bar_width * progress_val / 100.0
+                        )
+
+                        fill_width = max(
+                            bar_height,
+                            fill_width,
+                        )
+
+                        fill_width = min(
+                            bar_width,
+                            fill_width,
+                        )
+
+                        cr.set_source_rgba(
+                            r, g, b, 1.0,
+                        )
+
+                        self.rounded_rectangle(
+                            cr,
+                            bar_x,
+                            bar_y,
+                            fill_width,
+                            bar_height,
+                            bar_radius,
+                        )
+
+                        cr.fill()
 
             return False
 
