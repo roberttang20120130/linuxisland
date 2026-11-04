@@ -136,6 +136,20 @@ You can also launch manually at any time:
 python3 dynamic_island.py
 ```
 
+### Managing Modules
+
+Use the config CLI to enable, disable, or toggle individual watchers and sync them to your autostart method:
+
+```bash
+./config.sh status              # Show all modules and their state
+./config.sh disable wifi        # Disable a watcher + remove from autostart
+./config.sh toggle desktop_watcher  # Toggle on/off
+./config.sh enable-all          # Enable everything
+./config.sh sync                # Re-apply config to startup method
+```
+
+Settings persist in `~/.config/linuxisland/config.json`.
+
 ## Running
 
 Start the main application:

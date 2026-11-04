@@ -1371,6 +1371,39 @@ class DynamicIsland(Gtk.Window):
         return True
 
     # ========================================================
+    # EVENT DISPLACEMENT
+    # ========================================================
+
+    def _clear_all_events(self):
+        """Clear all active event states and their timeouts."""
+
+        if self.volume_timeout_id is not None:
+            try:
+                GLib.source_remove(self.volume_timeout_id)
+            except Exception:
+                pass
+            self.volume_timeout_id = None
+
+        if self.charging_timeout_id is not None:
+            try:
+                GLib.source_remove(self.charging_timeout_id)
+            except Exception:
+                pass
+            self.charging_timeout_id = None
+
+        if self.generic_timeout_id is not None:
+            try:
+                GLib.source_remove(self.generic_timeout_id)
+            except Exception:
+                pass
+            self.generic_timeout_id = None
+
+        self.volume_active = False
+        self.charging_active = False
+        self.generic_active = False
+        self.generic_event = None
+
+    # ========================================================
     # VOLUME
     # ========================================================
 
@@ -1391,6 +1424,8 @@ class DynamicIsland(Gtk.Window):
             ValueError,
         ):
             volume = 0
+
+        self._clear_all_events()
 
         self.volume = max(
             0,
@@ -1432,9 +1467,10 @@ class DynamicIsland(Gtk.Window):
 
         self.volume_timeout_id = None
 
-        self.volume_active = False
-
-        self.collapse()
+        # Only collapse if no other event has taken over.
+        if not (self.charging_active or self.generic_active):
+            self.volume_active = False
+            self.collapse()
 
         self.queue_draw()
 
@@ -1458,6 +1494,8 @@ class DynamicIsland(Gtk.Window):
             ValueError,
         ):
             battery = 0
+
+        self._clear_all_events()
 
         self.charging_battery = max(
             0,
@@ -1499,9 +1537,10 @@ class DynamicIsland(Gtk.Window):
 
         self.charging_timeout_id = None
 
-        self.charging_active = False
-
-        self.collapse()
+        # Only collapse if no other event has taken over.
+        if not (self.volume_active or self.generic_active):
+            self.charging_active = False
+            self.collapse()
 
         self.queue_draw()
 
@@ -1512,6 +1551,8 @@ class DynamicIsland(Gtk.Window):
     # ========================================================
 
     def show_generic(self, data):
+
+        self._clear_all_events()
 
         self.generic_event = data
 
@@ -1566,11 +1607,11 @@ class DynamicIsland(Gtk.Window):
 
         self.generic_timeout_id = None
 
-        self.generic_active = False
-
-        self.generic_event = None
-
-        self.collapse()
+        # Only collapse if no other event has taken over.
+        if not (self.volume_active or self.charging_active):
+            self.generic_active = False
+            self.generic_event = None
+            self.collapse()
 
         self.queue_draw()
 

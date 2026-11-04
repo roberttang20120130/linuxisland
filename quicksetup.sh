@@ -736,6 +736,9 @@ fi
 printf "  To launch manually:\n\n"
 printf "    ${CYAN}${BOLD}%s dynamic_island.py${RESET}\n" "$PYTHON_BIN"
 printf "\n"
+printf "  To manage modules and autostart:\n\n"
+printf "    ${CYAN}${BOLD}./config.sh status${RESET}\n"
+printf "\n"
 
 printf "\n"
 line
