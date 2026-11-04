@@ -751,10 +751,10 @@ class DynamicIsland(Gtk.Window):
         # ----------------------------------------------------
 
         cr.set_source_rgba(
-            0.01,
-            0.01,
-            0.015,
-            0.985,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
         )
 
         self.rounded_rectangle(
