@@ -8,6 +8,7 @@ set -Eeuo pipefail
 
 VERSION="1.0.0"
 BARE=false
+NOSTARTUP=false
 APT_UPDATED=false
 PACKAGE_MANAGER=""
 DISTRO="Unknown Linux distribution"
@@ -24,20 +25,24 @@ for arg in "$@"; do
         --bare)
             BARE=true
             ;;
+        --nostartup)
+            NOSTARTUP=true
+            ;;
         --help|-h)
             cat <<EOF
 LinuxIsland Quick Setup v${VERSION}
 
 Usage:
-  ./quicksetup.sh
-  ./quicksetup.sh --bare
+  ./quicksetup.sh [options]
 
 Options:
-  --bare     Use plain text instead of FIGlet.
-  --help     Display this help message.
+  --bare       Use plain text instead of FIGlet.
+  --nostartup  Skip automatic startup configuration.
+  --help       Display this help message.
 
 The script installs dependencies and configures automatic startup
 (Hyprland exec-once, systemd user services, or shell profile).
+Use --nostartup to skip the startup configuration step.
 EOF
             exit 0
             ;;
@@ -538,8 +543,6 @@ success "All dependency checks passed."
 # STAGE 7 — STARTUP CONFIGURATION
 # ============================================================
 
-section "STARTUP CONFIGURATION"
-
 WATCHERS=(
     dynamic_island.py
     battery_warn.py
@@ -552,9 +555,18 @@ WATCHERS=(
     wifi.py
 )
 
+STARTUP_METHOD=""
+
+if [[ "$NOSTARTUP" == true ]]; then
+    section "STARTUP CONFIGURATION"
+    info "Skipped (--nostartup)."
+    printf "\n"
+else
+
+section "STARTUP CONFIGURATION"
+
 # --- Detect startup method (priority: Hyprland > systemd > .profile) ---
 
-STARTUP_METHOD=""
 HYPRLAND_CONF=""
 
 if command -v hyprctl >/dev/null 2>&1 || [[ -f "$HOME/.config/hypr/hyprland.conf" ]]; then
@@ -695,6 +707,10 @@ UNIT
     esac
 
 fi
+
+fi  # close NOSTARTUP else
+
+printf "\n"
 
 # ============================================================
 # COMPLETION
