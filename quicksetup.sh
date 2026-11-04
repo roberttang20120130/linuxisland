@@ -35,6 +35,9 @@ Usage:
 Options:
   --bare     Use plain text instead of FIGlet.
   --help     Display this help message.
+
+The script installs dependencies and configures automatic startup
+(Hyprland exec-once, systemd user services, or shell profile).
 EOF
             exit 0
             ;;
@@ -532,6 +535,168 @@ fi
 success "All dependency checks passed."
 
 # ============================================================
+# STAGE 7 — STARTUP CONFIGURATION
+# ============================================================
+
+section "STARTUP CONFIGURATION"
+
+WATCHERS=(
+    dynamic_island.py
+    battery_warn.py
+    charging_watcher.py
+    desktop_watcher.py
+    notification.py
+    temprature.py
+    usb_watcher.py
+    volume_watcher.py
+    wifi.py
+)
+
+# --- Detect startup method (priority: Hyprland > systemd > .profile) ---
+
+STARTUP_METHOD=""
+HYPRLAND_CONF=""
+
+if command -v hyprctl >/dev/null 2>&1 || [[ -f "$HOME/.config/hypr/hyprland.conf" ]]; then
+    STARTUP_METHOD="hyprland"
+    HYPRLAND_CONF="$HOME/.config/hypr/hyprland.conf"
+elif command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
+    STARTUP_METHOD="systemd"
+else
+    STARTUP_METHOD="profile"
+fi
+
+info "Detected startup method: ${STARTUP_METHOD}"
+
+if ! confirm "Configure LinuxIsland to start automatically?"; then
+    warning "Skipping startup configuration."
+    printf "\n"
+else
+
+    case "$STARTUP_METHOD" in
+
+        # ----------------------------------------------------------
+        # HYPRLAND — exec-once entries
+        # ----------------------------------------------------------
+        hyprland)
+            info "Configuring Hyprland exec-once entries..."
+
+            if [[ ! -d "$(dirname "$HYPRLAND_CONF")" ]]; then
+                mkdir -p "$(dirname "$HYPRLAND_CONF")"
+            fi
+
+            if [[ ! -f "$HYPRLAND_CONF" ]]; then
+                touch "$HYPRLAND_CONF"
+                info "Created $HYPRLAND_CONF"
+            fi
+
+            # Back up existing config.
+            cp "$HYPRLAND_CONF" "${HYPRLAND_CONF}.bak.$(date +%Y%m%d%H%M%S)"
+            info "Backup saved."
+
+            for script in "${WATCHERS[@]}"; do
+                line_entry="exec-once = ${PYTHON_BIN} ${PROJECT_DIR}/${script}"
+
+                # Skip if already present.
+                if grep -qF "$line_entry" "$HYPRLAND_CONF"; then
+                    continue
+                fi
+
+                echo "$line_entry" >> "$HYPRLAND_CONF"
+            done
+
+            success "Hyprland exec-once entries added to $HYPRLAND_CONF"
+            info "They will take effect on your next Hyprland session (or after 'hyprctl reload')."
+            ;;
+
+        # ----------------------------------------------------------
+        # SYSTEMD — user services
+        # ----------------------------------------------------------
+        systemd)
+            info "Creating systemd user services..."
+
+            UNIT_DIR="$HOME/.config/systemd/user"
+            mkdir -p "$UNIT_DIR"
+
+            for script in "${WATCHERS[@]}"; do
+                unit_name="linuxisland-$(basename "$script" .py)"
+                unit_file="${UNIT_DIR}/${unit_name}.service"
+
+                cat > "$unit_file" <<UNIT
+[Unit]
+Description=LinuxIsland ${script}
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=${PYTHON_BIN} ${PROJECT_DIR}/${script}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNIT
+
+                systemctl --user daemon-reload 2>/dev/null || true
+            done
+
+            # Enable all units.
+            for script in "${WATCHERS[@]}"; do
+                unit_name="linuxisland-$(basename "$script" .py)"
+                systemctl --user enable "linuxisland-${unit_name#.service}" 2>/dev/null || \
+                    systemctl --user enable "${UNIT_DIR}/linuxisland-$(basename "$script" .py).service" 2>/dev/null || true
+            done
+
+            success "Systemd user services created and enabled."
+            info "They will start on your next login (or run 'systemctl --user start linuxisland-*' now)."
+            ;;
+
+        # ----------------------------------------------------------
+        # FALLBACK — append to ~/.profile or ~/.bashrc
+        # ----------------------------------------------------------
+        profile)
+            info "No Hyprland or systemd detected. Using shell profile..."
+
+            PROFILE_FILE=""
+            for candidate in "$HOME/.profile" "$HOME/.bashrc"; do
+                if [[ -f "$candidate" ]]; then
+                    PROFILE_FILE="$candidate"
+                    break
+                fi
+            done
+
+            if [[ -z "$PROFILE_FILE" ]]; then
+                PROFILE_FILE="$HOME/.profile"
+                touch "$PROFILE_FILE"
+            fi
+
+            MARKER_BEGIN="# >>> LinuxIsland >>>"
+            MARKER_END="# <<< LinuxIsland <<<"
+
+            # Remove old block if present.
+            if grep -qF "$MARKER_BEGIN" "$PROFILE_FILE"; then
+                sed -i "/$MARKER_BEGIN/,/$MARKER_END/d" "$PROFILE_FILE"
+            fi
+
+            {
+                echo ""
+                echo "$MARKER_BEGIN"
+                for script in "${WATCHERS[@]}"; do
+                    echo "nohup ${PYTHON_BIN} ${PROJECT_DIR}/${script} >/dev/null 2>&1 &"
+                done
+                echo "$MARKER_END"
+            } >> "$PROFILE_FILE"
+
+            success "Startup block added to $PROFILE_FILE"
+            info "LinuxIsland will launch on your next shell login."
+            ;;
+
+    esac
+
+fi
+
+# ============================================================
 # COMPLETION
 # ============================================================
 
@@ -546,12 +711,15 @@ printf "\n"
 printf "  Project directory:\n"
 printf "    %s\n" "$PROJECT_DIR"
 printf "\n"
-printf "  To launch LinuxIsland:\n\n"
+
+if [[ -n "$STARTUP_METHOD" ]]; then
+    printf "  Startup configured via: ${CYAN}${BOLD}%s${RESET}\n" "$STARTUP_METHOD"
+    printf "\n"
+fi
+
+printf "  To launch manually:\n\n"
 printf "    ${CYAN}${BOLD}%s dynamic_island.py${RESET}\n" "$PYTHON_BIN"
 printf "\n"
-
-warning "The installer does not automatically start watcher scripts."
-warning "Start your watchers according to your project setup."
 
 printf "\n"
 line

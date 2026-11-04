@@ -120,24 +120,21 @@ Currently supported package managers:
 - Pacman
 - DNF
 
-The setup script installs dependencies only. It does not automatically launch LinuxIsland or its watcher processes.
-
 If your distribution does not support one of these package managers, install the listed dependencies using your distribution's native package manager. Make sure the Python packages are available to your system-managed Python installation
 
 ### Starting LinuxIsland
 
-After running the setup script, choose one of the following methods to start LinuxIsland:
+The setup script automatically configures startup after installing dependencies:
 
-- **Hyprland:** Add an `exec-once` entry per script to your Hyprland configuration to launch LinuxIsland automatically when you log in.
-- **systemd:** Create and enable a systemd *user service* to launch LinuxIsland automatically when your user session starts.
+- **Hyprland** (preferred): Adds `exec-once` entries to `~/.config/hypr/hyprland.conf`.
+- **systemd**: Creates and enables per-watcher user services in `~/.config/systemd/user/`.
+- **Shell profile** (fallback): Appends a startup block to `~/.profile` or `~/.bashrc`.
 
-Alternatively, you can launch it manually once using:
+You can also launch manually at any time:
 
 ```bash
 python3 dynamic_island.py
 ```
-
-The setup script does not configure automatic startup.
 
 ## Running
 
