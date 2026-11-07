@@ -853,7 +853,7 @@ class DynamicIsland(Gtk.Window):
                             float(
                                 event.get(
                                     "border_radius",
-                                    CORNER_RADIUS,
+                                    CORNER_RADIUS + 1,
                                 )
                             ),
                         )
