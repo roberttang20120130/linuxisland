@@ -32,6 +32,9 @@ from gi.repository import (
 
 PORT = 8765
 
+# Bumped by 0.0.1 for every committed change (see git log).
+ISLAND_VERSION = "1.4.1"
+
 WINDOW_WIDTH = 390
 WINDOW_HEIGHT = 460
 
@@ -348,7 +351,10 @@ class DynamicIsland(Gtk.Window):
 
         self.queue_draw()
 
-        print("Dynamic Island started.")
+        print(
+            f"Dynamic Island v{ISLAND_VERSION} started.",
+            flush=True,
+        )
 
     # ========================================================
     # POSITION
@@ -799,7 +805,11 @@ class DynamicIsland(Gtk.Window):
             self.refresh_running_windows()
             self._clear_all_events()
             self.dock_active = True
-            self.expand(self.DOCK_EXPANDED_HEIGHT)
+
+            # Size the dock to its real content (match count) and resize
+            # the surface IMMEDIATELY: waiting for the animation would
+            # leave a too-small black panel on first expand.
+            self._update_dock_height()
 
         print(
             f"Dynamic Island [BETA]: dock "
