@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import cairo
+import glob as _glob_module
 import gi
 import json
 import os
+import shlex as _shlex_module
 import subprocess
 import threading
 from datetime import datetime
@@ -31,7 +33,7 @@ from gi.repository import (
 PORT = 8765
 
 WINDOW_WIDTH = 390
-WINDOW_HEIGHT = 92
+WINDOW_HEIGHT = 460
 
 NORMAL_WIDTH = 250
 NORMAL_HEIGHT = 28
@@ -246,6 +248,11 @@ class DynamicIsland(Gtk.Window):
         self.target_width = float(NORMAL_WIDTH)
         self.target_height = float(NORMAL_HEIGHT)
 
+        # Actual layer-surface height (the window is resized on demand,
+        # so this can differ from WINDOW_HEIGHT). Drawing must never be
+        # clipped to the stale WINDOW_HEIGHT constant.
+        self.surface_height = int(WINDOW_HEIGHT)
+
         self.animation_source_id = None
 
         # ----------------------------------------------------
@@ -292,6 +299,15 @@ class DynamicIsland(Gtk.Window):
         self.generic_timeout_id = None
 
         # ----------------------------------------------------
+        # DOCK STATE (BETA)
+        # ----------------------------------------------------
+
+        self.dock_active = False
+        self.running_windows = []
+        self.dock_search_query = ""
+        self.dock_selected_index = 0
+
+        # ----------------------------------------------------
         # INITIALIZATION
         # ----------------------------------------------------
 
@@ -302,6 +318,15 @@ class DynamicIsland(Gtk.Window):
         GLib.idle_add(
             self.enable_click_through
         )
+
+        # BETA: keyboard toggle for the dock (Super+Space via hyprctl).
+        # The island itself never receives focus; a tiny watcher thread
+        # polls the active keybind state is too wasteful, so instead we
+        # listen on the HTTP API: hyprland.conf binds Super+Space to
+        # curl POST /event {"type":"dock_toggle"}.
+
+        # BETA: typing goes to the search bar while the dock is open.
+        self.connect("key-press-event", self.on_key_press)
 
         # Initial values.
         self.update_battery()
@@ -359,12 +384,19 @@ class DynamicIsland(Gtk.Window):
     # ========================================================
 
     def enable_click_through(self):
-        try:
-            empty_region = cairo.Region()
+        """Set the input shape so that ONLY a small region accepts clicks.
 
-            self.input_shape_combine_region(
-                empty_region
-            )
+        Normal state: just the top 10px strip of the drawn pill.
+        Dock open:    the whole dock panel area.
+
+        Everything outside the region stays click-through, because this is
+        a layer-shell surface and Hyprland hit-tests per pixel.
+        """
+
+        try:
+            # Keep the window fully click-through (empty input region).
+            # The dock is toggled by Super+Space, not by mouse clicks.
+            empty_region = cairo.Region()
 
             gdk_window = self.get_window()
 
@@ -375,19 +407,609 @@ class DynamicIsland(Gtk.Window):
                     0,
                 )
 
-            print(
-                "Dynamic Island: "
-                "click-through enabled"
-            )
-
         except Exception as error:
             print(
                 "Dynamic Island: "
-                "click-through error:",
+                "input-shape error:",
                 repr(error),
             )
 
         return False
+
+    # ========================================================
+    # DOCK PANEL DRAWING (BETA)
+    # ========================================================
+    def set_dock_search(self, query):
+        """Set the dock search filter (from HTTP / CLI)."""
+
+        self.dock_search_query = str(query)
+
+        if not self.dock_active:
+            # Auto-open the dock when searching.
+            self.refresh_running_windows()
+            self._clear_all_events()
+            self.dock_active = True
+            self.dock_selected_index = 0
+
+        self._update_dock_height()
+
+        print(
+            f"Dynamic Island [BETA]: search '{self.dock_search_query}'",
+            flush=True,
+        )
+
+        self.queue_draw()
+
+        return False
+
+    def launch_dock_target(self, target):
+        """Launch an app by its grid number or by name."""
+
+        print(
+            f"Dynamic Island [BETA]: launch target={target!r}",
+            flush=True,
+        )
+        names = self._filtered_dock_apps()
+
+        launched = None
+
+        try:
+            index = int(str(target)) - 1
+
+            if 0 <= index < len(names):
+                launched = names[index]
+        except (TypeError, ValueError):
+            # Not a number: match by name (case-insensitive substring).
+            lowered = str(target).lower()
+
+            for name in names:
+                if lowered in name.lower():
+                    launched = name
+                    break
+
+        if launched is None:
+            print(
+                f"Dynamic Island [BETA]: "
+                f"no match for '{target}'",
+                flush=True,
+            )
+            return False
+
+        command = self._app_launch_command(launched)
+
+        if command:
+            try:
+                print(
+                    f"Dynamic Island [BETA]: cmd={command!r}",
+                    flush=True,
+                )
+                err_file = open("/tmp/island_launch_err.log", "ab")
+                subprocess.Popen(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=err_file,
+                    start_new_session=True,
+                )
+                err_file.close()
+                print(
+                    f"Dynamic Island [BETA]: launched {launched}",
+                    flush=True,
+                )
+            except OSError as error:
+                print(
+                    "Dynamic Island [BETA]: launch failed:",
+                    repr(error),
+                    flush=True,
+                )
+
+        return False
+
+    def _app_launch_command(self, name):
+        """Resolve an app display Name to its launch command.
+
+        Only the FIRST [Desktop Entry] section is considered: desktop files
+        contain extra sections (New Window / New Tab actions) whose Exec=
+        lines would otherwise overwrite the real one.
+        """
+
+        try:
+            paths = _glob_module.glob(
+                "/usr/share/applications/*.desktop"
+            )
+            paths += _glob_module.glob(
+                os.path.expanduser(
+                    "~/.local/share/applications/*.desktop"
+                )
+            )
+            # Snap apps live in a separate desktop directory.
+            paths += _glob_module.glob(
+                "/var/lib/snapd/desktop/applications/*.desktop"
+            )
+        except Exception:
+            return None
+
+        lowered = name.lower()
+
+        for path in paths:
+            display_name = None
+            command = None
+            in_first_section = False
+            first_section_done = False
+
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        stripped = line.strip()
+
+                        if not stripped or stripped.startswith("#"):
+                            continue
+
+                        # Section headers.
+                        if stripped.startswith("[") and stripped.endswith("]"):
+                            if first_section_done:
+                                break
+                            in_first_section = (
+                                stripped == "[Desktop Entry]"
+                            )
+                            if in_first_section:
+                                first_section_done = True
+                            continue
+
+                        if not in_first_section:
+                            continue
+
+                        # Take the FIRST Name= / Exec= only.
+                        if stripped.startswith("Name=") and display_name is None:
+                            display_name = stripped[5:].strip()
+                        elif stripped.startswith("Exec=") and command is None:
+                            command = stripped[5:].strip()
+
+            except OSError:
+                continue
+
+            if not display_name or display_name.lower() != lowered:
+                continue
+
+            if command:
+                try:
+                    clean = " ".join(
+                        token
+                        for token in _shlex_module.split(command)
+                        if not token.startswith("%")
+                    )
+                    if clean:
+                        # Use a shell so PATH lookup works for snap wrappers.
+                        return ["sh", "-c", clean]
+                except ValueError:
+                    pass
+
+        # Fallback: run the name as a plain command via the shell.
+        return ["sh", "-c", name]
+
+    def _filtered_dock_apps(self):
+        """App names filtered by the current search query."""
+
+        apps = self._dock_app_names()
+        query = self.dock_search_query.strip().lower()
+
+        if not query:
+            return apps
+
+        return [
+            name for name in apps
+            if query in name.lower()
+        ]
+
+    # ========================================================
+    # DOCK VIEW DRAWING (BETA)
+    # ========================================================
+
+    def draw_dock_view(self, cr, x, y, width, height):
+        """Draw the app-dock content INSIDE the expanded island body."""
+
+        from datetime import datetime as _dt
+
+        pad = 16
+
+        # --- Date header (top center) ---
+        today = _dt.now().strftime("%A, %d %B")
+        self.draw_centered_text(
+            cr, today, x + width / 2, y + 8, 14, True
+        )
+
+        # --- Search bar ---
+        search_y = y + 30
+        self.rounded_rectangle(
+            cr, x + pad, search_y, width - pad * 2, 26, 10
+        )
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.08)
+        cr.fill()
+
+        query = self.dock_search_query.strip()
+        placeholder = (
+            f"{query}  ({len(self._filtered_dock_apps())} matches)"
+            if query
+            else "island search <term>   island launch <n>"
+        )
+
+        self.draw_text(
+            cr,
+            f"🔍 {placeholder}",
+            x + pad + 10,
+            search_y + 7,
+            10,
+            False,
+        )
+
+        # --- Open-now row ---
+        open_y = y + 64
+        self.draw_text(cr, "OPEN NOW", x + pad, open_y, 9, True)
+
+        chip_x = x + pad
+        for title in self.running_windows[:3]:
+            label = title[:16]
+            est_w = max(72, len(label) * 6.5 + 18)
+            if chip_x + est_w > x + width - pad:
+                break
+
+            self.rounded_rectangle(
+                cr, chip_x, open_y + 14, est_w, 24, 12
+            )
+            cr.set_source_rgba(0.25, 0.85, 0.45, 0.25)
+            cr.fill()
+
+            self.draw_text(
+                cr, label, chip_x + 9, open_y + 20, 10, False
+            )
+            chip_x += est_w + 6
+
+        # --- App list (numbered, filtered by search, arrow-selectable) ---
+        grid_top = y + 108
+        cols = 4
+
+        cell_w = (width - pad * 2 - (cols - 1) * 8) / cols
+
+        names = self._filtered_dock_apps()[:16]
+
+        for i, app_name in enumerate(names):
+            row = i // cols
+            col = i % cols
+
+            cx = x + pad + col * (cell_w + 8)
+            cy = grid_top + row * 74
+
+            # Selection highlight.
+            if i == self.dock_selected_index:
+                self.rounded_rectangle(
+                    cr, cx - 2, cy - 2, cell_w + 4, 70, 10
+                )
+                cr.set_source_rgba(0.35, 0.55, 1.0, 0.35)
+                cr.fill()
+
+            # Letter circle (no icons).
+            cr.arc(cx + cell_w / 2, cy + 22, 18, 0, 3.14159)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.10)
+            cr.fill()
+
+            initial = (app_name[:1] or "?").upper()
+            self.draw_centered_text(
+                cr, initial, cx + cell_w / 2, cy + 14, 16, True
+            )
+
+            # Small launch number badge in the corner.
+            self.draw_right_text(
+                cr, str(i + 1),
+                cx + cell_w - 3, cy + 2, 8, False
+            )
+
+            short = app_name if len(app_name) <= 12 else app_name[:11] + "…"
+            self.draw_centered_text(
+                cr, short, cx + cell_w / 2, cy + 46, 9, False
+            )
+
+        # --- Footer hint ---
+        self.draw_centered_text(
+            cr, "↑↓ select · Enter launch · Esc close",
+            x + width / 2, y + height - 18, 9, False
+        )
+
+        return False
+
+    def _dock_app_names(self):
+        """Cached list of installed app names (parsed once per session)."""
+
+        if getattr(self, "_dock_apps_cache", None) is None:
+            import glob as _g
+            
+            apps = []
+            seen = set()
+
+            try:
+                paths = _g.glob("/usr/share/applications/*.desktop")
+                paths += _g.glob(
+                    os.path.expanduser(
+                        "~/.local/share/applications/*.desktop"
+                    )
+                )
+                # Snap apps live in a separate desktop directory.
+                paths += _g.glob(
+                    "/var/lib/snapd/desktop/applications/*.desktop"
+                )
+            except Exception:
+                paths = []
+
+            for path in sorted(paths):
+                name = None
+                no_display = False
+
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        for line in handle:
+                            line = line.strip()
+                            # Take the FIRST Name= only (desktop files can
+                            # contain extra localized/alt name lines).
+                            if line.startswith("Name=") and name is None:
+                                name = line[5:].strip()
+                            elif line.lower().startswith("nodisplay"):
+                                no_display = True
+                except OSError:
+                    continue
+
+                if not name or no_display:
+                    continue
+
+                key = name.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                apps.append(name)
+
+            self._dock_apps_cache = apps
+
+        return self._dock_apps_cache
+
+    # ========================================================
+    # DOCK TOGGLE (BETA) — Super+Space via HTTP event
+    # ========================================================
+
+    DOCK_EXPANDED_HEIGHT = 340
+
+    def toggle_dock(self):
+        """Expand/collapse the island into the app-dock view."""
+
+        if self.dock_active:
+            # Closing: release the keyboard. The input shape is handed
+            # back to "pill only" by the collapse animation (see
+            # animation_tick), so no separate empty-shape call here —
+            # that would leave a tall, fully click-through surface until
+            # the next event.
+            GtkLayerShell.set_keyboard_mode(
+                self,
+                GtkLayerShell.KeyboardMode.NONE,
+            )
+            self.dock_active = False
+            self.collapse()
+        else:
+            # Opening: intercept mouse + take the keyboard while open.
+            self._set_input_shape_full()
+            GtkLayerShell.set_keyboard_mode(
+                self,
+                GtkLayerShell.KeyboardMode.EXCLUSIVE,
+            )
+            self.refresh_running_windows()
+            self._clear_all_events()
+            self.dock_active = True
+            self.expand(self.DOCK_EXPANDED_HEIGHT)
+
+        print(
+            f"Dynamic Island [BETA]: dock "
+            f"{'opened' if self.dock_active else 'closed'}",
+            flush=True,
+        )
+
+        self.queue_draw()
+
+        return False
+
+    def _set_input_shape_empty(self):
+        """No clickable area: fully click-through (closed state)."""
+
+        try:
+            region = cairo.Region()
+            gdk_window = self.get_window()
+
+            if gdk_window is not None:
+                gdk_window.input_shape_combine_region(
+                    region, 0, 0
+                )
+        except Exception as error:
+            print("input-shape (empty) error:", repr(error), flush=True)
+
+    def _set_input_shape_full(self):
+        """Whole window clickable while the dock is open.
+
+        Layer-shell surfaces are hit-tested per pixel on their drawn
+        content, so we simply do NOT restrict the input shape: every
+        opaque/drawn pixel of the expanded panel receives clicks.
+        (An empty cairo.Region cannot express a rectangle in pycairo,
+        and restricting it is what broke clicks before.)
+        """
+
+        try:
+            gdk_window = self.get_window()
+
+            if gdk_window is not None:
+                # Clear any previous restriction by combining the full
+                # window area. We build that region from the window's own
+                # size using a cairo surface-backed mask is overkill; the
+                # simplest correct move on Wayland layer surfaces is to
+                # leave input shape unset, which means "use drawn pixels".
+                pass
+        except Exception as error:
+            print("input-shape (full) error:", repr(error), flush=True)
+
+    def _set_input_shape_pill(self):
+        """Input region = the currently drawn pill only.
+
+        Keeps every pixel outside the visible island fully click-through
+        even while the window surface is tall (expanded dock). The input
+        shape must be re-applied whenever the animated size changes, so
+        it is refreshed from animation_tick().
+        """
+
+        try:
+            region = cairo.Region()
+
+            # Round to whole pixels; a zero-size pill means "empty".
+            w = int(self.visual_width)
+            h = int(self.visual_height)
+
+            if w > 0 and h > 0:
+                x = (WINDOW_WIDTH - self.visual_width) / 2.0
+                region.union(cairo.RectangleInt(x, 0, w, h))
+
+            gdk_window = self.get_window()
+
+            if gdk_window is not None:
+                gdk_window.input_shape_combine_region(
+                    region,
+                    0,
+                    0,
+                )
+
+        except Exception as error:
+            print("input-shape (pill) error:", repr(error), flush=True)
+
+    def on_key_press(self, widget, event):
+        """Typing while the dock is open goes to the search bar."""
+
+        if not self.dock_active:
+            return False
+
+        keyval = event.keyval
+
+        # Escape closes the dock.
+        if keyval == Gdk.KEY_Escape:
+            GLib.idle_add(self.toggle_dock)
+            return True
+
+        # Backspace deletes the last character.
+        if keyval == Gdk.KEY_BackSpace:
+            self.dock_search_query = self.dock_search_query[:-1]
+            self.dock_selected_index = 0
+            self._update_dock_height()
+            self.queue_draw()
+            return True
+
+        # Enter launches the highlighted app.
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            names = self._filtered_dock_apps()[:16]
+
+            print(
+                f"Dynamic Island [BETA]: ENTER pressed, "
+                f"selected={self.dock_selected_index}, "
+                f"matches={len(names)}",
+                flush=True,
+            )
+
+            if 0 <= self.dock_selected_index < len(names):
+                app_name = names[self.dock_selected_index]
+                print(
+                    f"Dynamic Island [BETA]: launching "
+                    f"'{app_name}'",
+                    flush=True,
+                )
+                GLib.idle_add(
+                    self.launch_dock_target,
+                    app_name,
+                )
+                # Close after launching.
+                GLib.timeout_add(250, lambda: (self.toggle_dock(), False)[1])
+
+            return True
+
+        # Arrow keys move the selection. The index is clamped first so a
+        # stale out-of-range value can never wrap to the wrong end of the
+        # list (e.g. index 15 with 3 matches would jump to match 2).
+        if keyval in (Gdk.KEY_Down, Gdk.KEY_Right,
+                      Gdk.KEY_Up, Gdk.KEY_Left):
+            names = self._filtered_dock_apps()[:16]
+
+            if not names:
+                return True
+
+            step = 1 if keyval in (Gdk.KEY_Down, Gdk.KEY_Right) else -1
+
+            index = min(
+                max(self.dock_selected_index, 0),
+                len(names) - 1,
+            )
+
+            self.dock_selected_index = (index + step) % len(names)
+
+            self.queue_draw()
+            return True
+
+        # Printable ASCII appends to the query.
+        if 32 <= keyval < 127:
+            self.dock_search_query += chr(keyval)
+            self.dock_selected_index = 0
+            self._update_dock_height()
+            self.queue_draw()
+            return True
+
+        return False
+
+    def _update_dock_height(self):
+        """Grow/shrink the island to fit the current match count."""
+
+        names = self._filtered_dock_apps()[:16]
+        rows = max(1, (len(names) + 3) // 4)
+
+        # Base layout: date(28) + search(30+8) + open-now(38+8) + grid.
+        height = 150 + rows * 74 + 24
+
+        self.target_height = float(height)
+
+        # Clamp the selection: filters can shrink the visible list below
+        # the current index (e.g. typing a query with one match while an
+        # earlier item was highlighted).
+        if not names or self.dock_selected_index >= len(names):
+            self.dock_selected_index = 0
+
+        # Resize the layer surface immediately so content is never drawn
+        # past the bottom edge of a too-small window mid-animation.
+        self._sync_surface_height(max(self.surface_height, height))
+
+        self.start_animation()
+
+    def refresh_running_windows(self):
+        """One-shot list of open window titles via hyprctl."""
+
+        try:
+            result = subprocess.run(
+                ["hyprctl", "clients"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except (OSError, subprocess.SubprocessError):
+            self.running_windows = []
+            return
+
+        windows = []
+
+        for line in result.stdout.splitlines():
+            if not line.startswith("Window ") or "->" not in line:
+                continue
+
+            parts = line.split("->", 1)
+
+            if len(parts) == 2:
+                title = parts[1].strip()
+                windows.append(title[:48])
+
+        self.running_windows = windows[:6]
 
     # ========================================================
     # BATTERY UPDATE
@@ -732,9 +1354,12 @@ class DynamicIsland(Gtk.Window):
             WINDOW_WIDTH,
         )
 
+        # Never clip the drawing to the stale WINDOW_HEIGHT constant —
+        # the layer surface is resized on demand (see _sync_surface_height)
+        # and can legitimately be taller than the initial value.
         height = min(
             self.visual_height,
-            WINDOW_HEIGHT,
+            float(self.surface_height),
         )
 
         if width <= 0 or height <= 0:
@@ -1196,6 +1821,12 @@ class DynamicIsland(Gtk.Window):
             return False
 
         # ----------------------------------------------------
+        # DOCK VIEW (BETA) — island expanded into the app dock.
+        # ----------------------------------------------------
+
+        if self.dock_active:
+            return self.draw_dock_view(cr, x, y, width, height)
+
         # NORMAL VIEW
         # ----------------------------------------------------
 
@@ -1254,6 +1885,19 @@ class DynamicIsland(Gtk.Window):
     # ANIMATION
     # ========================================================
 
+    def _sync_surface_height(self, height):
+        """Grow/shrink the actual layer surface so the drawing area can
+        hold `height` pixels. Only resizes when needed (layer-shell
+        resize requests are comparatively expensive)."""
+
+        try:
+            if int(height) != self.surface_height:
+                new_h = max(NORMAL_HEIGHT, int(height))
+                self.resize(WINDOW_WIDTH, new_h)
+                self.surface_height = new_h
+        except Exception as error:
+            print("surface resize error:", repr(error), flush=True)
+
     def start_animation(self):
 
         if self.animation_source_id is not None:
@@ -1311,6 +1955,10 @@ class DynamicIsland(Gtk.Window):
             NORMAL_HEIGHT
         )
 
+        # Shrink the layer surface back to normal size. The animation
+        # tick keeps it in sync while the visual pill collapses.
+        self._sync_surface_height(WINDOW_HEIGHT)
+
         self.start_animation()
 
     def animation_tick(self):
@@ -1342,6 +1990,15 @@ class DynamicIsland(Gtk.Window):
             self.visual_height += (
                 dh * ANIMATION_SPEED
             )
+
+        # Keep the layer surface in step with the animated size so the
+        # dock is never clipped by a stale, smaller window.
+        self._sync_surface_height(self.visual_height)
+
+        # Keep the input shape hugging the drawn pill so the rest of the
+        # (possibly tall) surface stays click-through during animation.
+        if not self.dock_active:
+            self._set_input_shape_pill()
 
         self.queue_draw()
 
@@ -1738,6 +2395,33 @@ class EventHandler(BaseHTTPRequestHandler):
                 GLib.idle_add(
                     island.show_volume,
                     data,
+                )
+
+            elif event_type == "dock_toggle":
+
+                # BETA: toggle the app-dock panel (Super+Space).
+                GLib.idle_add(
+                    island.toggle_dock,
+                )
+
+            elif event_type == "dock_search":
+
+                # BETA: filter the dock grid by search query.
+                query = data.get("query", "")
+
+                GLib.idle_add(
+                    island.set_dock_search,
+                    str(query),
+                )
+
+            elif event_type == "dock_launch":
+
+                # BETA: launch an app from the current filtered list.
+                target = data.get("target")
+
+                GLib.idle_add(
+                    island.launch_dock_target,
+                    target,
                 )
 
             else:

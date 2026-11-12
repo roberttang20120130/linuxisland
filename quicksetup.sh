@@ -3,10 +3,10 @@ set -Eeuo pipefail
 
 # ============================================================
 # LinuxIsland Quick Setup
-# Version: 1.0.0
+# Version: 1.4.0-nightly
 # ============================================================
 
-VERSION="1.0.0"
+VERSION="1.4.0-nightly"
 BARE=false
 NOSTARTUP=false
 APT_UPDATED=false
@@ -619,6 +619,26 @@ else
 
             success "Hyprland exec-once entries added to $HYPRLAND_CONF"
             info "They will take effect on your next Hyprland session (or after 'hyprctl reload')."
+
+            # --- App dock: Super+Space keybind + island CLI ---
+
+            DOCK_BIND='bind = SUPER, SPACE, exec, curl -s -X POST http://127.0.0.1:8765/event -H Content-Type:application/json -d {"type":"dock_toggle"}'
+
+            if ! grep -qF 'curl -s -X POST http://127.0.0.1:8765/event' "$HYPRLAND_CONF"; then
+                echo "" >> "$HYPRLAND_CONF"
+                echo "# LinuxIsland app dock (Super+Space)" >> "$HYPRLAND_CONF"
+                echo "$DOCK_BIND" >> "$HYPRLAND_CONF"
+                success "App dock keybind added: Super+Space toggles the dock."
+            else
+                info "App dock keybind already present, skipping."
+            fi
+
+            if [[ -x "${PROJECT_DIR}/island" ]]; then
+                chmod +x "${PROJECT_DIR}/island" 2>/dev/null || true
+                ln -sf "${PROJECT_DIR}/island" "${HOME}/.local/bin/island" 2>/dev/null || \
+                    info "Could not link 'island' CLI into ~/.local/bin (PATH may not include it)."
+                success "Installed 'island' CLI (search/launch/toggle) at ${PROJECT_DIR}/island."
+            fi
             ;;
 
         # ----------------------------------------------------------
@@ -739,6 +759,14 @@ printf "\n"
 printf "  To manage modules and autostart:\n\n"
 printf "    ${CYAN}${BOLD}./config.sh status${RESET}\n"
 printf "\n"
+
+if [[ "$STARTUP_METHOD" == "hyprland" ]]; then
+    printf "  App dock (new in v1.4.0):\n\n"
+    printf "    ${CYAN}${BOLD}Super+Space${RESET}   toggle the app dock\n"
+    printf "    ${CYAN}${BOLD}island search <term>${RESET}\n"
+    printf "    ${CYAN}${BOLD}island launch <n|name>${RESET}\n"
+    printf "\n"
+fi
 
 printf "\n"
 line

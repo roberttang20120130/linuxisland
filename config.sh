@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # Manage module enable/disable and startup configuration.
 # ============================================================
 
-VERSION="1.0.0"
+VERSION="1.4.0-nightly"
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$HOME/.config/linuxisland"
 CONFIG_FILE="${CONFIG_DIR}/config.json"

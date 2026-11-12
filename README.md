@@ -14,6 +14,7 @@ LinuxIsland provides a compact, dynamic interface for system information, notifi
   - [External Python Dependencies](#external-python-dependencies)
   - [System Libraries](#system-libraries)
 - [Installation](#installation)
+- [App Dock (v1.4.0)](#app-dock-v140)
 - [Starting LinuxIsland](#starting-linuxisland)
 - [Running](#running)
 - [Architecture](#architecture)
@@ -39,6 +40,7 @@ LinuxIsland provides a compact, dynamic interface for system information, notifi
 - Volume and Wi-Fi events.
 - USB connection notifications.
 - Temperature monitoring integrations.
+- App dock: expand the island into a searchable, launchable app grid (v1.4.0).
 - Local HTTP API for external integrations.
 - GTK-based rendering.
 - Wayland layer-shell integration.
@@ -149,6 +151,37 @@ Use the config CLI to enable, disable, or toggle individual watchers and sync th
 ```
 
 Settings persist in `~/.config/linuxisland/config.json`.
+
+## App Dock (v1.4.0)
+
+The island can expand into a full app dock: date header, live search bar, an "OPEN NOW" row of open windows, and a numbered grid of up to 16 apps (4 columns). The window resizes itself to fit the current match count as you type.
+
+- **Trigger:** `Super+Space` — quicksetup adds this Hyprland keybind automatically on install.
+- **While open:** typing filters the list live; arrows move the selection (wraps); Enter launches and auto-closes; Escape closes. The dock grabs the keyboard exclusively while open, so nothing leaks to your desktop.
+- **CLI** (`island`, installed by quicksetup):
+
+```bash
+island                 # toggle dock open/closed
+island search <term>   # filter the list live (auto-opens)
+island launch <n|name> # launch Nth visible app, or match by name
+island close           # same as toggle when open
+```
+
+### Dock HTTP events
+
+All POST JSON to `http://127.0.0.1:8765/event`:
+
+| type | fields | effect |
+|---|---|---|
+| `dock_toggle` | — | expand/collapse the dock |
+| `dock_search` | `query` | set search filter (auto-opens) |
+| `dock_launch` | `target` (number or name) | launch app from filtered list |
+
+### Notes and limitations
+
+- The dock is keyboard/CLI-driven. Some Hyprland builds do not deliver mouse clicks to layer-shell surfaces, so there is no click-to-launch.
+- App entries show letter circles + number badges; icons are intentionally not rendered.
+- Search matching is substring, case-insensitive, with no ranking.
 
 ## Running
 
@@ -273,6 +306,7 @@ LinuxIsland also supports specialized event types, including:
 
 - `volume` — uses the `volume` field. Renders a volume bar with percentage.
 - `charging` — uses the `battery` field. Shows charging status with green border.
+- `dock_toggle`, `dock_search` (`query`), `dock_launch` (`target`) — app dock controls (see [App Dock](#app-dock-v140)).
 - Any other type renders as a generic event (title + value + optional icon/progress/border).
 
 ### API responses

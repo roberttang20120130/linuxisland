@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# island — CLI for the BETA dynamic-island app dock.
+#
+# Usage:
+#   island                 toggle the dock open/closed
+#   island search <term>   filter the dock grid (auto-opens it)
+#   island launch <n|name> launch the Nth visible app, or match by name
+#   island close           collapse the dock
+
+API="http://127.0.0.1:8765/event"
+
+post() {
+    curl -s -X POST "$API" \
+        -H 'Content-Type: application/json' \
+        -d "$1" > /dev/null
+}
+
+case "${1:-toggle}" in
+    toggle|"")
+        post '{"type":"dock_toggle"}'
+        ;;
+    search)
+        if [ -z "$2" ]; then
+            # Clear the filter.
+            post '{"type":"dock_search","query":""}'
+        else
+            query="$2"
+            post "{\"type\":\"dock_search\",\"query\":\"$query\"}"
+        fi
+        ;;
+    launch|open)
+        if [ -z "$2" ]; then
+            echo "usage: island launch <number-or-name>" >&2
+            exit 1
+        fi
+        target="$2"
+        post "{\"type\":\"dock_launch\",\"target\":\"$target\"}"
+        ;;
+    close)
+        # Toggle only closes when open; this is a best-effort shortcut.
+        post '{"type":"dock_toggle"}'
+        ;;
+    *)
+        echo "usage: island [toggle|search <term>|launch <n|name>|close]" >&2
+        exit 1
+        ;;
+esac
