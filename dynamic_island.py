@@ -865,7 +865,9 @@ class DynamicIsland(Gtk.Window):
             h = int(self.visual_height)
 
             if w > 0 and h > 0:
-                x = (WINDOW_WIDTH - self.visual_width) / 2.0
+                # RectangleInt requires integers; the pill x-offset is a
+                # float (the window is wider than the drawn pill).
+                x = int((WINDOW_WIDTH - self.visual_width) / 2.0)
                 region.union(cairo.RectangleInt(x, 0, w, h))
 
             gdk_window = self.get_window()
