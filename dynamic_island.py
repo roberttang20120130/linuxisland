@@ -33,7 +33,7 @@ from gi.repository import (
 PORT = 8765
 
 # Bumped by 0.0.1 for every committed change (see git log).
-ISLAND_VERSION = "1.4.1"
+ISLAND_VERSION = "1.4.2"
 
 WINDOW_WIDTH = 390
 WINDOW_HEIGHT = 460
